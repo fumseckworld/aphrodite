@@ -4,8 +4,11 @@ version = "0.0.0"
 edition = "2021"
 description = "An api for manage db"
 repository = "https://github.com/fumseckworld/aphrodite"
-keywords = ["api","management","rust","db"]
+keywords = ["api", "management", "rust", "db"]
 categories = ["development-tools"]
 license = "AGPL-3.0"
 readme = "README.md"
 [dependencies]
+actix-web = "4.9.0"
+diesel = { version = "2.2.3", features = ["mysql", "postgres", "sqlite", "r2d2"] }
+clap = { version = "4.5.16", features = ["derive"] }
