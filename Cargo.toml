@@ -1,0 +1,11 @@
+[package]
+name = "aphrodite"
+version = "0.0.0"
+edition = "2021"
+description = "An api for manage db"
+repository = "https://github.com/fumseckworld/aphrodite"
+keywords = ["api","management","rust","db"]
+categories = ["api"]
+license = "AGPL-3.0"
+readme = "README.md"
+[dependencies]
