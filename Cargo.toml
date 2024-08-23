@@ -5,7 +5,7 @@ edition = "2021"
 description = "An api for manage db"
 repository = "https://github.com/fumseckworld/aphrodite"
 keywords = ["api","management","rust","db"]
-categories = ["api"]
+categories = ["development-tools"]
 license = "AGPL-3.0"
 readme = "README.md"
 [dependencies]
