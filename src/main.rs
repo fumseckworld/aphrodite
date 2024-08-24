@@ -39,128 +39,139 @@ fn aphrodite() -> ArgMatches {
                 .long("database")
                 .required(true),
         )
-        .arg(Arg::new("user").short('u').long("user").required(true))
+        .arg(Arg::new("user").short('u').long("user").required(false))
         .arg(
             Arg::new("password")
                 .short('p')
                 .long("password")
-                .required(true),
+                .required(false),
         )
-        .arg(Arg::new("host").short('h').long("host").required(true))
+        .arg(Arg::new("host").short('h').long("host").required(false))
         .get_matches()
 }
 #[doc = "The api entry"]
 #[main]
-async fn main() -> Result<(), Error> {
+async fn main() -> std::io::Result<()> {
     let app = aphrodite();
     if let Some(t) = app.get_one::<String>("type") {
-        if t.eq(&"postgres") {
+        if t.eq("postgres") {
             if let Ok(s) = run_postgres(&app) {
-                s.await
-            } else {
-                Err(Error::new(ErrorKind::AddrInUse, "Server not running"))
+                return s.await;
             }
-        } else if t.eq(&"mysql") {
+            Err(Error::new(ErrorKind::NotConnected, "Bad credentials"))
+        } else if t.eq("mysql") {
             if let Ok(s) = run_mysql(&app) {
-                s.await
-            } else {
-                Err(Error::new(ErrorKind::AddrInUse, "Server not running"))
+                return s.await;
             }
-        } else if t.eq(&"sqlite") {
+            Err(Error::new(ErrorKind::NotConnected, "Bad credentials"))
+        } else if t.eq("sqlite") {
             if let Ok(s) = run_sqlite(&app) {
-                s.await
-            } else {
-                Err(Error::new(ErrorKind::AddrInUse, "Server not running"))
+                return s.await;
             }
+            Err(Error::new(ErrorKind::NotConnected, "Bad credentials"))
         } else {
-            Err(Error::new(ErrorKind::NotFound, "Database type is missing"))
+            Err(Error::new(ErrorKind::NotFound, "Bad db type"))
         }
     } else {
-        Err(Error::new(ErrorKind::NotFound, "Database type is missing"))
+        Err(Error::new(ErrorKind::NotConnected, "Bad db type"))
     }
 }
 
 fn run_sqlite(app: &ArgMatches) -> Result<Server, Error> {
-    if let Some(d) = app.get_one::<String>("database") {
-        let manager = ConnectionManager::<SqliteConnection>::new(format!("sqlite:{d}").as_str());
-        if let Ok(pool) = Pool::builder().build(manager) {
-            if let Ok(http) = HttpServer::new(move || {
-                App::new()
-                    .app_data(Data::new(pool.clone()))
-                    .service(sqlite_welcome)
-            })
-            .bind(("0.0.0.0:8000", 8000))
-            {
-                return Ok(http.run());
-            }
-        }
-        return Err(Error::new(ErrorKind::NotConnected, "Bad credentials"));
-    }
-    Err(Error::new(ErrorKind::NotFound, "Database name is missing"))
+    let database = app
+        .get_one::<String>("database")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Database name is missing"))?;
+    let manager = ConnectionManager::<SqliteConnection>::new(format!("sqlite://{database}"));
+    let pool = Pool::builder()
+        .build(manager)
+        .map_err(|_| Error::new(ErrorKind::NotConnected, "Bad credentials"))?;
+    HttpServer::new(move || {
+        App::new()
+            .service(sqlite_welcome)
+            .app_data(Data::new(pool.clone()))
+    })
+    .bind(("0.0.0.0", 8000))
+    .map_or_else(
+        |_| {
+            Err(Error::new(
+                ErrorKind::AddrNotAvailable,
+                "Failed to run server",
+            ))
+        },
+        |http| Ok(http.run()),
+    )
 }
 
 fn run_postgres(app: &ArgMatches) -> Result<Server, Error> {
-    if let Some(u) = app.get_one::<String>("user") {
-        if let Some(p) = app.get_one::<String>("password") {
-            if let Some(h) = app.get_one::<String>("host") {
-                if let Some(d) = app.get_one::<String>("database") {
-                    let manager = ConnectionManager::<PgConnection>::new(
-                        format!("postgres://{u}:{p}@{h}/{d}").as_str(),
-                    );
-                    if let Ok(pool) = Pool::builder().build(manager) {
-                        if let Ok(http) = HttpServer::new(move || {
-                            App::new()
-                                .app_data(Data::new(pool.clone()))
-                                .service(pgsql_welcome)
-                        })
-                        .bind(("0.0.0.0", 8000))
-                        {
-                            return Ok(http.run());
-                        }
-                        return Err(Error::new(
-                            ErrorKind::NotConnected,
-                            "Failed to run the server",
-                        ));
-                    }
-                    return Err(Error::new(ErrorKind::NotConnected, "Bad credentials"));
-                }
-                return Err(Error::new(ErrorKind::NotFound, "Database name is missing"));
-            }
-        }
-        return Err(Error::new(ErrorKind::NotFound, "Password is missing"));
-    }
-    Err(Error::new(ErrorKind::NotFound, "Username is missing"))
+    let user = app
+        .get_one::<String>("user")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Username is missing"))?;
+    let password = app
+        .get_one::<String>("password")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Password is missing"))?;
+    let host = app
+        .get_one::<String>("host")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Host is missing"))?;
+    let database = app
+        .get_one::<String>("database")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Database name is missing"))?;
+
+    let manager = ConnectionManager::<PgConnection>::new(format!(
+        "postgres://{user}:{password}@{host}/{database}"
+    ));
+    let pool = Pool::builder()
+        .build(manager)
+        .map_err(|_| Error::new(ErrorKind::NotConnected, "Bad credentials"))?;
+    HttpServer::new(move || {
+        App::new()
+            .service(pgsql_welcome)
+            .app_data(Data::new(pool.clone()))
+    })
+    .bind(("0.0.0.0", 8000))
+    .map_or_else(
+        |_| {
+            Err(Error::new(
+                ErrorKind::AddrNotAvailable,
+                "Failed to run server",
+            ))
+        },
+        |http| Ok(http.run()),
+    )
 }
 
 fn run_mysql(app: &ArgMatches) -> Result<Server, Error> {
-    if let Some(u) = app.get_one::<String>("user") {
-        if let Some(p) = app.get_one::<String>("password") {
-            if let Some(h) = app.get_one::<String>("host") {
-                if let Some(d) = app.get_one::<String>("database") {
-                    let manager = ConnectionManager::<MysqlConnection>::new(
-                        format!("mysql://{u}:{p}@{h}/{d}").as_str(),
-                    );
-                    if let Ok(pool) = Pool::builder().build(manager) {
-                        if let Ok(http) = HttpServer::new(move || {
-                            App::new()
-                                .app_data(Data::new(pool.clone()))
-                                .service(mysql_welcome)
-                        })
-                        .bind(("0.0.0.0:8000", 8000))
-                        {
-                            return Ok(http.run());
-                        }
-                        return Err(Error::new(
-                            ErrorKind::NotConnected,
-                            "Failed to run the server",
-                        ));
-                    }
-                    return Err(Error::new(ErrorKind::NotConnected, "Bad credentials"));
-                }
-                return Err(Error::new(ErrorKind::NotFound, "Database name is missing"));
-            }
-        }
-        return Err(Error::new(ErrorKind::NotFound, "Password is missing"));
-    }
-    Err(Error::new(ErrorKind::NotFound, "Username is missing"))
+    let user = app
+        .get_one::<String>("user")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Username is missing"))?;
+    let password = app
+        .get_one::<String>("password")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Password is missing"))?;
+    let host = app
+        .get_one::<String>("host")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Host is missing"))?;
+    let database = app
+        .get_one::<String>("database")
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Database name is missing"))?;
+
+    let manager = ConnectionManager::<MysqlConnection>::new(format!(
+        "mysql://{user}:{password}@{host}/{database}"
+    ));
+    let pool = Pool::builder()
+        .build(manager)
+        .map_err(|_| Error::new(ErrorKind::NotConnected, "Bad credentials"))?;
+    HttpServer::new(move || {
+        App::new()
+            .service(mysql_welcome)
+            .app_data(Data::new(pool.clone()))
+    })
+    .bind(("0.0.0.0", 8000))
+    .map_or_else(
+        |_| {
+            Err(Error::new(
+                ErrorKind::AddrNotAvailable,
+                "Failed to run server",
+            ))
+        },
+        |http| Ok(http.run()),
+    )
 }
