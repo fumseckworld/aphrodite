@@ -7,11 +7,25 @@
 
 use actix_web::dev::Server;
 use actix_web::web::Data;
-use actix_web::{main, App, HttpServer};
+use actix_web::{get, main, App, HttpResponse, HttpServer, Responder};
 use clap::{Arg, ArgMatches, Command};
 use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::{MysqlConnection, PgConnection, SqliteConnection};
 use std::io::{Error, ErrorKind};
+
+#[get("/")]
+async fn mysql_welcome() -> impl Responder {
+    HttpResponse::Ok().body("Welcome on mysql")
+}
+
+#[get("/")]
+async fn pgsql_welcome() -> impl Responder {
+    HttpResponse::Ok().body("Welcome on postgres")
+}
+#[get("/")]
+async fn sqlite_welcome() -> impl Responder {
+    HttpResponse::Ok().body("Welcome on sqlite")
+}
 
 #[doc = "The command options"]
 fn aphrodite() -> ArgMatches {
@@ -70,8 +84,12 @@ fn run_sqlite(app: &ArgMatches) -> Result<Server, Error> {
     if let Some(d) = app.get_one::<String>("database") {
         let manager = ConnectionManager::<SqliteConnection>::new(format!("sqlite:{d}").as_str());
         if let Ok(pool) = Pool::builder().build(manager) {
-            if let Ok(http) = HttpServer::new(move || App::new().app_data(Data::new(pool.clone())))
-                .bind(("0.0.0.0:8000", 8000))
+            if let Ok(http) = HttpServer::new(move || {
+                App::new()
+                    .app_data(Data::new(pool.clone()))
+                    .service(sqlite_welcome)
+            })
+            .bind(("0.0.0.0:8000", 8000))
             {
                 return Ok(http.run());
             }
@@ -90,9 +108,12 @@ fn run_postgres(app: &ArgMatches) -> Result<Server, Error> {
                         format!("postgres://{u}:{p}@{h}/{d}").as_str(),
                     );
                     if let Ok(pool) = Pool::builder().build(manager) {
-                        if let Ok(http) =
-                            HttpServer::new(move || App::new().app_data(Data::new(pool.clone())))
-                                .bind(("0.0.0.0", 8000))
+                        if let Ok(http) = HttpServer::new(move || {
+                            App::new()
+                                .app_data(Data::new(pool.clone()))
+                                .service(pgsql_welcome)
+                        })
+                        .bind(("0.0.0.0", 8000))
                         {
                             return Ok(http.run());
                         }
@@ -120,9 +141,12 @@ fn run_mysql(app: &ArgMatches) -> Result<Server, Error> {
                         format!("mysql://{u}:{p}@{h}/{d}").as_str(),
                     );
                     if let Ok(pool) = Pool::builder().build(manager) {
-                        if let Ok(http) =
-                            HttpServer::new(move || App::new().app_data(Data::new(pool.clone())))
-                                .bind(("0.0.0.0:8000", 8000))
+                        if let Ok(http) = HttpServer::new(move || {
+                            App::new()
+                                .app_data(Data::new(pool.clone()))
+                                .service(mysql_welcome)
+                        })
+                        .bind(("0.0.0.0:8000", 8000))
                         {
                             return Ok(http.run());
                         }
