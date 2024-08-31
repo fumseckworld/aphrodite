@@ -1,0 +1,6 @@
+allow = ["cargo"]
+warn = []
+forbid = ["complexity", "style", "nursery", "pedantic", "suspicious", "correctness", "perf"]
+before-cargo = []
+cargo = ["verify-project", "check --all-targets --profile=test", "deny check", "audit", "test -j 4 --no-fail-fast -- --show-output", "fmt --check", "outdated"]
+after-cargo = []
